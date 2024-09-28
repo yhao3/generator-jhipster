@@ -352,10 +352,6 @@ export const baseServerFiles = {
     },
   ],
   serverMicroservice: [
-    javaMainPackageTemplatesBlock({
-      condition: generator => generator.applicationTypeMicroservice,
-      templates: ['config/SpringDocConfiguration.java'],
-    }),
     {
       condition: generator => generator.applicationTypeMicroservice,
       path: SERVER_MAIN_RES_DIR,
