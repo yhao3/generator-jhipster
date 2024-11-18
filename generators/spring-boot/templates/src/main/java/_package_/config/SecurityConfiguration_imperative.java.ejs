@@ -45,9 +45,6 @@ import org.springframework.security.web.SecurityFilterChain;
 <%_ if (!skipClient || authenticationUsesCsrf) { _%>
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 <%_ } _%>
-<%_ if (authenticationUsesCsrf) { _%>
-import tech.jhipster.web.filter.CookieCsrfFilter;
-<%_ } _%>
 <%_ if (!skipClient) { _%>
 import <%= packageName %>.web.filter.SpaWebFilter;
 <%_ } _%>
@@ -182,11 +179,6 @@ public class SecurityConfiguration {
 <%_ } _%>
 <%_ if (!skipClient) { _%>
             .addFilterAfter(new SpaWebFilter(), BasicAuthenticationFilter.class)
-<%_ } _%>
-<%_ if (!applicationTypeMicroservice) { _%>
-  <%_ if (authenticationUsesCsrf) { _%>
-            .addFilterAfter(new CookieCsrfFilter(), BasicAuthenticationFilter.class)
-  <%_ } _%>
 <%_ } _%>
 <%_ if (!skipClient) { _%>
             .headers(headers -> headers
@@ -387,12 +379,23 @@ public class SecurityConfiguration {
      * Custom CSRF handler to provide BREACH protection.
      *
      * @see <a href="https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html#csrf-integration-javascript-spa">Spring Security Documentation - Integrating with CSRF Protection</a>
+     * @see <a href="https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html#deferred-csrf-token">Spring Security Documentation - Deferred Loading of the CsrfToken</a>
      * @see <a href="https://github.com/jhipster/generator-jhipster/pull/25907">JHipster - use customized SpaCsrfTokenRequestHandler to handle CSRF token</a>
      * @see <a href="https://stackoverflow.com/q/74447118/65681">CSRF protection not working with Spring Security 6</a>
      */
     static final class SpaCsrfTokenRequestHandler extends CsrfTokenRequestAttributeHandler {
 
-        private final CsrfTokenRequestHandler delegate = new XorCsrfTokenRequestAttributeHandler();
+        private final CsrfTokenRequestHandler delegate;
+
+        SpaCsrfTokenRequestHandler() {
+            XorCsrfTokenRequestAttributeHandler requestAttributeHandler = new XorCsrfTokenRequestAttributeHandler();
+            // By setting the csrfRequestAttributeName to null,
+            // the CsrfToken must first be loaded to determine what attribute name to use.
+            // This causes the CsrfToken to be loaded on every request.
+            requestAttributeHandler.setCsrfRequestAttributeName(null);
+
+            this.delegate = requestAttributeHandler;
+        }
 
         @Override
         public void handle(HttpServletRequest request, HttpServletResponse response, Supplier<CsrfToken> csrfToken) {
