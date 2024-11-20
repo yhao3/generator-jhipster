@@ -107,9 +107,8 @@ import org.springframework.security.web.server.WebFilterExchange;
 import org.springframework.security.web.server.authentication.HttpStatusServerEntryPoint;
 import org.springframework.security.web.server.authentication.logout.HttpStatusReturningServerLogoutSuccessHandler;
 <%_ } _%>
-<%_ if (authenticationUsesCsrf) { _%>
-import org.springframework.security.web.server.csrf.CookieServerCsrfTokenRepository;
-import org.springframework.security.web.server.csrf.ServerCsrfTokenRequestAttributeHandler;
+<%_ if (authenticationUsesCsrf && !applicationTypeMicroservice) { _%>
+import org.springframework.security.web.server.csrf.*;
 <%_ } _%>
 import org.springframework.security.web.server.header.XFrameOptionsServerHttpHeadersWriter.Mode;
 import org.springframework.security.web.server.header.ReferrerPolicyServerHttpHeadersWriter;
@@ -121,6 +120,10 @@ import org.springframework.security.web.server.util.matcher.OrServerWebExchangeM
 <%_ if (applicationTypeGateway) { _%>
 import org.springframework.security.web.server.WebFilterChainProxy;
 import org.springframework.security.web.server.firewall.ServerWebExchangeFirewall;
+<%_ } _%>
+<%_ if (authenticationUsesCsrf && !applicationTypeMicroservice) { _%>
+import org.springframework.util.StringUtils;
+import org.springframework.web.server.ServerWebExchange;
 <%_ } _%>
 <%_ if (authenticationUsesCsrf) { _%>
 import reactor.core.publisher.Mono;
@@ -239,10 +242,7 @@ public class SecurityConfiguration {
             .csrf(csrf -> csrf
 <%_ if (authenticationUsesCsrf && !applicationTypeMicroservice) { _%>
                 .csrfTokenRepository(CookieServerCsrfTokenRepository.withHttpOnlyFalse())
-                // See https://stackoverflow.com/q/74447118/65681
-                .csrfTokenRequestHandler(new ServerCsrfTokenRequestAttributeHandler()))
-            // See https://github.com/spring-projects/spring-security/issues/5766
-            .addFilterAt(new CookieCsrfFilter(), SecurityWebFiltersOrder.REACTOR_CONTEXT)
+                .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler()))
 <%_ } else { _%>
                 .disable())
 <%_ } _%>
@@ -504,6 +504,47 @@ public class SecurityConfiguration {
                 return bean;
             }
         };
+    }
+<%_ } _%>
+<%_ if (authenticationUsesCsrf && !applicationTypeMicroservice) { _%>
+
+    static final class SpaCsrfTokenRequestHandler implements ServerCsrfTokenRequestHandler {
+
+        private final ServerCsrfTokenRequestAttributeHandler plain = new ServerCsrfTokenRequestAttributeHandler();
+        private final XorServerCsrfTokenRequestAttributeHandler xor = new XorServerCsrfTokenRequestAttributeHandler();
+
+        @Override
+        public void handle(ServerWebExchange exchange, Mono<CsrfToken> csrfToken) {
+
+            csrfToken.subscribe(token -> {
+                /*
+                 * Always use XorServerCsrfTokenRequestAttributeHandler to provide BREACH protection
+                 * of the CsrfToken when it is rendered in the response body.
+                 */
+                this.xor.handle(exchange, Mono.just(token));
+            });
+        }
+
+        @Override
+        public Mono<String> resolveCsrfTokenValue(ServerWebExchange exchange, CsrfToken csrfToken) {
+            /*
+             * If the request contains a request header, use ServerCsrfTokenRequestAttributeHandler
+             * to resolve the CsrfToken. This applies when a single-page application includes
+             * the header value automatically, which was obtained via a cookie containing the
+             * raw CsrfToken.
+             */
+            if (StringUtils.hasText(exchange.getRequest().getHeaders().getFirst(csrfToken.getHeaderName()))) {
+                return this.plain.resolveCsrfTokenValue(exchange, csrfToken);
+            }
+
+            /*
+             * In all other cases (e.g. if the request contains a request parameter), use
+             * XorServerCsrfTokenRequestAttributeHandler to resolve the CsrfToken. This applies
+             * when a server-side rendered form includes the _csrf request parameter as a
+             * hidden input.
+             */
+            return this.xor.resolveCsrfTokenValue(exchange, csrfToken);
+        }
     }
 <%_ } _%>
 }
